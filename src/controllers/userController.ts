@@ -11,6 +11,7 @@ import { sendRideOffer } from "../gateway/socket";
  * body: { chatId: number, location: { lat, lon }, dropoff?: {lat,lon}, address?: string }
  */
 export const requestRide = async (req: Request, res: Response) => {
+    console.log(`RIDE REQUESTED}`)
     try {
         const { chatId, location, dropoff, address } = req.body;
         if (!chatId || !location || typeof location.lat !== "number" || typeof location.lon !== "number") {
@@ -18,21 +19,23 @@ export const requestRide = async (req: Request, res: Response) => {
         }
 
         // create a pending ride
-        const rideId = uuidv4();
+        // const rideId = uuidv4();
         const rideDoc = await RideModel.create({
-            id: rideId,
             userChatId: chatId,
             pickup: { lat: location.lat, lon: location.lon, address },
             dropoff: dropoff ? { lat: dropoff.lat, lon: dropoff.lon, address: dropoff.address } : undefined,
             status: "pending",
             fareEstimate: undefined,
         });
+        console.log(`rideDoc: ${rideDoc}`)
 
         // find available drivers (online and not on a ride)
         const drivers = await DriverModel.find({ status: "online", currentRideId: { $in: [null, undefined] } }).lean();
+        console.log(`Drivers: ${drivers}`)
         if (!drivers || drivers.length === 0) {
-            return res.status(200).json({ message: "No drivers available", rideId });
+            return res.status(200).json({ message: "No drivers available", rideId: rideDoc._id });
         }
+        console.log(`Drivers: ${drivers}`)
 
         // compute distances and pick the nearest driver
         const distances = drivers.map((d) => {
@@ -44,7 +47,7 @@ export const requestRide = async (req: Request, res: Response) => {
         const MAX_OFFER_KM = 10; // configurable radius
         if (nearest.distKm > MAX_OFFER_KM) {
             // optional: no drivers in radius
-            return res.status(200).json({ message: "No drivers in range", rideId });
+            return res.status(200).json({ message: "No drivers in range", rideId: rideDoc._id });
         }
 
         // update ride to mark as offered (driver not yet accepted)
@@ -61,9 +64,10 @@ export const requestRide = async (req: Request, res: Response) => {
             userChatId: rideDoc.userChatId,
             approxDistanceKm: nearest.distKm,
         };
+        console.log(`offerPayload: ${offerPayload}`)
 
         const sent = sendRideOffer(nearest.driver.id, offerPayload);
-
+        console.log(`RIDE OFFER SENT: ${sent}`)
         if (!sent) {
             // driver not connected — failover: try next nearest
             const available = distances.slice(1);
@@ -73,7 +77,7 @@ export const requestRide = async (req: Request, res: Response) => {
             }
         }
 
-        return res.json({ rideId, message: "Ride requested, offering driver(s)" });
+        return res.json({ rideId: rideDoc._id, message: "Haydovchi topildi, qabul qilish kutilyapti..." });
     } catch (err: any) {
         console.error("requestRide error:", err);
         return res.status(500).json({ error: "Internal error" });

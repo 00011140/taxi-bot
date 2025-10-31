@@ -1,11 +1,11 @@
 import express from "express";
-import { authenticate } from "../middlewares/auth";
-import { updateLocation, updateStatus, acceptRide } from "../controllers/driverController";
+import { authenticateDriver } from "../middlewares/auth";
+import { updateLocation, updateStatus } from "../controllers/driverController";
 
 const router = express.Router();
 
-router.post("/update-location", authenticate, updateLocation);
-router.post("/status", authenticate, updateStatus);
-router.post("/accept", authenticate, acceptRide);
+router.post("/update-location", authenticateDriver, updateLocation);
+router.post("/status", authenticateDriver, updateStatus);
+// router.post("/accept", authenticateDriver, acceptRide);
 
 export default router;

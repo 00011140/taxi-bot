@@ -2,24 +2,25 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import http from "http";
-import { RideModel } from "../models/Ride";
+import { IRide, RideModel } from "../models/Ride";
 import { DriverModel } from "../models/DriverModel";
+import { Socket } from "socket.io-client";
 
-interface SocketAuthPayload {
+export interface SocketAuthPayload {
     id: string;
     phone?: string;
 }
 
-let io: Server;
-const driverSockets = new Map<string, string>(); // driverId -> socketId
-const userSockets = new Map<number, string>(); // userChatId -> socketId
+export let socketIo: Server;
+export const driverSockets = new Map<string, string>(); // driverId -> socketId
+export const userSockets = new Map<number, string>(); // userChatId -> socketId
 
 export const initSocketServer = (server: http.Server) => {
-    io = new Server(server, {
+    socketIo = new Server(server, {
         cors: { origin: "*" },
     });
 
-    io.on("connection", (socket) => {
+    socketIo.on("connection", (socket) => {
         // Two modes of auth:
         //  - driver: send auth { token: <JWT> } in handshake
         //  - user: send auth { userChatId: <number> } in handshake (no JWT), OR include both if desired
@@ -35,10 +36,12 @@ export const initSocketServer = (server: http.Server) => {
 
                 // handle driver accept via socket (real-time acceptance)
                 socket.on("accept_ride", async (payload: { rideId: string }) => {
+                    console.log("RIDE_ACCEPTED SOCKET");
+
                     const { rideId } = payload;
                     console.log(`📩 Driver ${driverId} accepting ride ${rideId}`);
 
-                    const ride = await RideModel.findOne({ id: rideId });
+                    const ride = await RideModel.findOne({ _id: rideId });
                     if (!ride) {
                         socket.emit("error", { message: "Ride not found" });
                         return;
@@ -50,32 +53,95 @@ export const initSocketServer = (server: http.Server) => {
                         return;
                     }
 
-                    // assign
+                    // assign ride to driver
                     ride.driverId = driverId;
                     ride.status = "accepted";
                     await ride.save();
 
                     // mark driver currentRideId in DB
-                    await DriverModel.findOneAndUpdate({ id: driverId }, { currentRideId: rideId });
+                    const driver = await DriverModel.findOneAndUpdate(
+                        { id: driverId },
+                        { currentRideId: rideId },
+                        { new: true }
+                    );
 
                     // send confirmation to driver
                     socket.emit("ride_status", { status: "accepted", rideId });
 
-                    // notify user (if connected)
+                    // ✅ notify user (if connected)
                     if (ride.userChatId) {
+                        console.log(`ride.userChatId: ${ride.userChatId}`)
                         const userSocketId = userSockets.get(ride.userChatId);
-                        if (userSocketId) {
-                            io.to(userSocketId).emit("ride_assigned", {
+                        console.log(`userSocketId: ${userSocketId} Driver: ${driver}`)
+                        if (userSocketId && driver) {
+                            socketIo.to(userSocketId).emit("ride_assigned", {
                                 rideId: ride.id,
+                                chatId: ride.userChatId,
                                 driver: {
-                                    id: driverId,
-                                    // you may fetch more driver details as needed
+                                    id: driver.id,
+                                    name: driver.name,
+                                    vehicle: driver.vehicle,
+                                    phone: driver.phone,
+                                    location: driver.location, // send driver's current coords
                                 },
+                                message: "🚗 Your driver is on the way!",
                             });
                         }
                     }
 
+                    // 🗺️ Send user pickup location to driver
+                    const driverSocketId = driverSockets.get(driverId);
+                    console.log(`driverSocketId: ${driverSocketId}`);
+                    console.log(`ride.pickup: ${ride.pickup}`);
+
+                    if (driverSocketId && ride.pickup) {
+                        socketIo.to(driverSocketId).emit("user_location", {
+                            lat: ride.pickup.lat,
+                            lon: ride.pickup.lon,
+                            address: ride.pickup.address || "Pickup point",
+                        });
+                        console.log(`📍 Sent user location to driver ${driverId}`);
+                    }
+
+
                     console.log(`✅ Ride ${rideId} assigned to driver ${driverId}`);
+                });
+
+                socket.on("driver_arrived", async (payload: { rideId: string }) => {
+                    const { rideId } = payload;
+                    let ride = await checkRide({ rideId, status: "arrived" });
+                    if (!ride) return socket.emit("error", "Ride not found");
+
+                    // notify user
+                    const userSocketId = userSockets.get(Number(ride.userChatId));
+                    if (userSocketId) {
+                        socketIo.to(userSocketId).emit("ride_status_update", {
+                            status: "arrived",
+                            message: "🚗 Haydovchi yetib keldi!",
+                        });
+                    }
+
+                    console.log(`✅ Driver arrived for ride ${rideId}`);
+                });
+
+                socket.on("ride_started", async (rideId: string) => {
+                    let ride = await checkRide({ rideId, status: "started" });
+                    if (!ride) return socket.emit("error", "Ride not found");
+                    const userSocketId = userSockets.get(Number(ride.userChatId));
+
+                    if (userSocketId) {
+                        socketIo.to(userSocketId).emit("ride_started",);
+                    }
+                });
+
+                socket.on("ride_completed", async (rideId: string) => {
+                    let ride = await checkRide({ rideId, status: "completed" });
+                    if (!ride) return socket.emit("error", "Ride not found");
+                    const userSocketId = userSockets.get(Number(ride.userChatId));
+
+                    if (userSocketId) {
+                        socketIo.to(userSocketId).emit("ride_completed",);
+                    }
                 });
 
                 socket.on("disconnect", () => {
@@ -108,28 +174,48 @@ export const initSocketServer = (server: http.Server) => {
     });
 
     console.log("✅ WebSocket gateway initialized");
-    return io;
+    return socketIo;
 };
+
+const checkRide = async (paylod: { rideId: string, status: string }): Promise<IRide | null> => {
+    let { rideId, status } = paylod;
+    const ride = await RideModel.findOne({ _id: rideId });
+
+    if (ride) {
+        ride.status = status;
+        if (status == "started") {
+            ride.lastLocation = { lat: ride!.pickup.lat, lon: ride!.pickup.lon };
+        }
+        await ride.save();
+    }
+
+    return ride;
+}
 
 // send a ride offer to a driver
 export const sendRideOffer = (driverId: string, ride: any) => {
     const socketId = driverSockets.get(driverId);
+    console.log(driverId);
     if (!socketId) {
         console.log(`⚠️ Driver ${driverId} not connected — cannot send ride_offer`);
         return false;
     }
-    io.to(socketId).emit("ride_offer", ride);
+    socketIo.to(socketId).emit("ride_offer", ride);
     console.log(`📤 Ride offer sent to driver ${driverId}`);
     return true;
 };
 
 // notify a user (by Telegram chat id)
 export const notifyUser = (userChatId: number, event: string, payload: any) => {
-    const socketId = userSockets.get(userChatId);
+    console.log();
+    userSockets.forEach((val, key) => {
+        console.log(val, key);
+    })
+    const socketId = userSockets.get(Number(userChatId));
     if (!socketId) {
         console.log(`⚠️ User chat ${userChatId} not connected — can't send ${event}`);
         return false;
     }
-    io.to(socketId).emit(event, payload);
+    socketIo.to(socketId).emit(event, payload);
     return true;
 };

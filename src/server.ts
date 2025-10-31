@@ -7,6 +7,7 @@ import { MongoDriverRepo } from "./infra/repos/MongoDriverRepo";
 import { connectDB } from "./utils/db";
 import dotenv from "dotenv";
 import userRoutes from "./routes/user";
+import driverRoutes from "./routes/driver";
 
 dotenv.config();
 
@@ -21,6 +22,7 @@ async function startServer() {
     const driverRepo = new MongoDriverRepo();
 
     app.use("/user", userRoutes);
+    app.use("/driver", driverRoutes);
     app.use("/driver", makeDriverAuthController(driverRepo));
 
     // simple health check

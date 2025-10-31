@@ -10,6 +10,7 @@ export interface IDriverDocument extends Document {
     otp?: string;
     otpExpiresAt?: Date;
     chatId?: number;
+    currentRideId?: string;
 }
 
 const DriverSchema = new Schema<IDriverDocument>(
@@ -26,6 +27,7 @@ const DriverSchema = new Schema<IDriverDocument>(
         otp: String,
         otpExpiresAt: Date,
         chatId: Number,
+        currentRideId: { type: String },
     },
     { timestamps: true }
 );

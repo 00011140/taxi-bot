@@ -1,5 +1,4 @@
 import express from "express";
-import { authenticate } from "../middlewares/auth";
 // import { markArrived, startRide, endRide } from "../controllers/rideController";
 import { requestRide } from "../controllers/userController";
 

@@ -9,7 +9,7 @@ const token = process.env.USER_BOT_TOKEN!;
 const backendUrl = process.env.BACKEND_URL!;
 export const userBot = new TelegramBot(token, { polling: true });
 
-const userSessions: Record<number, { location?: { lat: number; lon: number }; rideId?: string }> = {};
+const userSessions: Record<number, { location?: { lat: number; lon: number }; rideId?: string, fareMessageId?: number; }> = {};
 interface RequestRideResponse {
     rideId: string;
     message?: string;
@@ -20,10 +20,10 @@ userBot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     userBot.sendMessage(
         chatId,
-        "👋 Welcome to PayTube Taxi! Please share your location to request a ride.",
+        "👋 Oson Ride Taxi xizmatiga xush kelibsiz! Taxi chaqirish uchun lokatsiyangizni yuboring.",
         {
             reply_markup: {
-                keyboard: [[{ text: "📍 Share Location", request_location: true }]],
+                keyboard: [[{ text: "📍 Lokatsiya yuborish", request_location: true }]],
                 resize_keyboard: true,
                 one_time_keyboard: true,
             },
@@ -36,8 +36,9 @@ userBot.on("location", async (msg) => {
     const chatId = msg.chat.id;
     const { latitude, longitude } = msg.location!;
     userSessions[chatId] = { location: { lat: latitude, lon: longitude } };
+    initUserSocket(userBot, userSessions, chatId);
 
-    userBot.sendMessage(chatId, "🚕 Searching for nearby drivers...");
+    userBot.sendMessage(chatId, "🚕 Yaqin-atrofdagi haydovchilar qidirilmoqda...");
 
     try {
         const res = await axios.post<RequestRideResponse>(`${backendUrl}/user/request-ride`, {
@@ -45,11 +46,10 @@ userBot.on("location", async (msg) => {
             location: { lat: latitude, lon: longitude },
         });
         userSessions[chatId].rideId = res.data.rideId;
-        userBot.sendMessage(chatId, "✅ Ride request sent! Waiting for a driver...");
+        let message = res.data.message;
+        userBot.sendMessage(chatId, message ?? "Request successfull...");
     } catch (e: any) {
         userBot.sendMessage(chatId, `❌ Failed to request ride: ${e.response?.data?.error || e.message}`);
     }
 });
 
-// Initialize user WebSocket connection
-initUserSocket(userBot, userSessions);

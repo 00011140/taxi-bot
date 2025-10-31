@@ -2,23 +2,26 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IRide extends Document {
-    id: string;
     userId?: string;
     userChatId?: number;                // Telegram chat id for the user
     driverId?: string | null;
     pickup: { lat: number; lon: number; address?: string };
     dropoff?: { lat: number; lon: number; address?: string };
-    status: "pending" | "offered" | "accepted" | "arrived" | "started" | "completed" | "cancelled";
+    status: string | "pending" | "offered" | "accepted" | "arrived" | "waiting_for_user" | "started" | "completed" | "cancelled";
     fare?: number;
     fareEstimate?: number;
     distanceKm?: number;
     createdAt?: Date;
     startedAt?: Date;
     endedAt?: Date;
+    distanceTraveled: number,
+    lastLocation: {
+        lat: Number,
+        lon: Number,
+    },
 }
 
 const rideSchema = new Schema<IRide>({
-    id: { type: String, required: true, unique: true },
     userId: String,
     userChatId: Number,
     driverId: String,
@@ -43,6 +46,11 @@ const rideSchema = new Schema<IRide>({
     createdAt: { type: Date, default: Date.now },
     startedAt: Date,
     endedAt: Date,
+    distanceTraveled: { type: Number, default: 0 },
+    lastLocation: {
+        lat: Number,
+        lon: Number,
+    },
 });
 
 export const RideModel = mongoose.model<IRide>("Ride", rideSchema);

@@ -5,6 +5,12 @@ import { setupMenuHandlers } from "./handlers/menuHandler";
 import { setupRideHandlers } from "./handlers/rideHandler";
 import { setupLocationHandler } from "./handlers/locationHandler";
 
+declare module "node-telegram-bot-api" {
+    interface Location {
+        live_period?: number;
+    }
+}
+
 dotenv.config();
 
 const bot = new TelegramBot(process.env.DRIVER_BOT_TOKEN!, { polling: true });
